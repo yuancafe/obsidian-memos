@@ -1424,26 +1424,18 @@ async function loadTagSuggestions(app, folderPath, options = {}) {
   return rankTagSuggestions(Array.from(usageMap.values()), limit);
 }
 
+// src/image-attachment.ts
+async function saveImageAttachment(app, file, sourcePath = "") {
+  const attachmentPath = await app.fileManager.getAvailablePathForAttachment(
+    file.name,
+    sourcePath
+  );
+  const arrayBuffer = await file.arrayBuffer();
+  await app.vault.createBinary(attachmentPath, arrayBuffer);
+  return attachmentPath;
+}
+
 // src/capture-view.ts
-var IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "svg"];
-var ImageSuggestModal = class extends import_obsidian7.FuzzySuggestModal {
-  constructor(app, onChoose) {
-    super(app);
-    this.onChoose = onChoose;
-    this.setPlaceholder(i18n.searchImages);
-  }
-  getItems() {
-    return this.app.vault.getFiles().filter(
-      (f) => IMAGE_EXTENSIONS.includes(f.extension.toLowerCase())
-    );
-  }
-  getItemText(file) {
-    return file.path;
-  }
-  onChooseItem(file) {
-    this.onChoose(file);
-  }
-};
 var NoteSuggestModal = class extends import_obsidian7.FuzzySuggestModal {
   constructor(app, onChoose, onDismiss) {
     super(app);
@@ -1561,10 +1553,18 @@ var CaptureItemView = class extends import_obsidian7.ItemView {
       attr: { "aria-label": i18n.insertImage }
     });
     (0, import_obsidian7.setIcon)(imageBtn, "image");
+    this.imageInput = document.createElement("input");
+    this.imageInput.type = "file";
+    this.imageInput.accept = "image/*";
+    this.imageInput.multiple = false;
+    this.imageInput.style.display = "none";
+    this.imageInput.addEventListener("change", () => {
+      void this.handleImageSelection();
+    });
+    container.appendChild(this.imageInput);
     imageBtn.addEventListener("click", () => {
-      new ImageSuggestModal(this.app, (file) => {
-        this.insertAtCursor(`![[${file.name}]]`);
-      }).open();
+      this.imageInput.value = "";
+      this.imageInput.click();
     });
     const tagBtn = footerLeft.createEl("button", {
       cls: "memos-capture-card-foot-btn clickable-icon",
@@ -1697,6 +1697,24 @@ var CaptureItemView = class extends import_obsidian7.ItemView {
       this.suggestedTags = suggestions;
       this.renderTags();
     } catch (_err) {
+    }
+  }
+  /** Save the selected image into the attachment location and insert an embed. */
+  async handleImageSelection() {
+    var _a, _b, _c;
+    const selected = (_a = this.imageInput.files) == null ? void 0 : _a[0];
+    if (!selected)
+      return;
+    try {
+      const sourcePath = (_c = (_b = this.app.workspace.getActiveFile()) == null ? void 0 : _b.path) != null ? _c : "";
+      const attachmentPath = await saveImageAttachment(this.app, selected, sourcePath);
+      this.insertAtCursor(`![[${attachmentPath}]]`);
+    } catch (err) {
+      new import_obsidian7.Notice(
+        t("failedToSave", { err: err instanceof Error ? err.message : String(err) })
+      );
+    } finally {
+      this.imageInput.value = "";
     }
   }
   // ── Helpers ──────────────────────────────────────────────
