@@ -30,7 +30,7 @@ __export(main_exports, {
 module.exports = __toCommonJS(main_exports);
 
 // src/plugin.ts
-var import_obsidian9 = require("obsidian");
+var import_obsidian10 = require("obsidian");
 
 // src/constants.ts
 var VIEW_TYPE_MEMOS = "memos-view";
@@ -264,7 +264,7 @@ function t(key, vars) {
     return key;
   if (vars) {
     for (const [k, v] of Object.entries(vars)) {
-      val = val.replaceAll(`\${${k}}`, String(v));
+      val = val.split(`\${${k}}`).join(String(v));
     }
   }
   return val;
@@ -1366,9 +1366,67 @@ MemosView.IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "svg"];
 MemosView.EMBED_RE = /!\[\[(.+?)\]\]/g;
 
 // src/capture-view.ts
+var import_obsidian7 = require("obsidian");
+
+// src/tag-suggestions.ts
 var import_obsidian6 = require("obsidian");
+function normalizeTag(tag) {
+  return tag.replace(/^#+/, "").trim();
+}
+function rankTagSuggestions(usages, limit = 6) {
+  return usages.slice().sort((a, b) => {
+    if (b.count !== a.count)
+      return b.count - a.count;
+    if (b.lastUsed !== a.lastUsed)
+      return b.lastUsed - a.lastUsed;
+    return a.tag.localeCompare(b.tag);
+  }).slice(0, limit).map((usage) => usage.tag);
+}
+async function loadTagSuggestions(app, folderPath, options = {}) {
+  var _a, _b;
+  const folder = (0, import_obsidian6.normalizePath)(folderPath);
+  const abstractFolder = app.vault.getAbstractFileByPath(folder);
+  if (!abstractFolder || !(abstractFolder instanceof import_obsidian6.TFolder)) {
+    return [];
+  }
+  const excluded = new Set(
+    Array.from((_a = options.excludedTags) != null ? _a : [], (tag) => normalizeTag(tag)).filter(Boolean)
+  );
+  const usageMap = /* @__PURE__ */ new Map();
+  const limit = (_b = options.limit) != null ? _b : 6;
+  const files = abstractFolder.children.filter(
+    (child) => child instanceof import_obsidian6.TFile && child.extension.toLowerCase() === "md"
+  );
+  await Promise.all(
+    files.map(async (file) => {
+      var _a2, _b2;
+      const cache = app.metadataCache.getFileCache(file);
+      const fm = cache == null ? void 0 : cache.frontmatter;
+      if (!fm || fm["type"] !== "memo")
+        return;
+      const raw = await app.vault.read(file);
+      const { tags } = parseMemoContent(raw, fm, (_b2 = (_a2 = cache == null ? void 0 : cache.frontmatterPosition) == null ? void 0 : _a2.end) == null ? void 0 : _b2.offset);
+      const created = typeof fm["created"] === "string" ? Date.parse(fm["created"]) : Number.isFinite(file.stat.ctime) ? file.stat.ctime : Date.now();
+      const uniqueTags = new Set(
+        tags.map(normalizeTag).filter((tag) => tag.length > 0 && !excluded.has(tag))
+      );
+      for (const tag of uniqueTags) {
+        const usage = usageMap.get(tag);
+        if (usage) {
+          usage.count += 1;
+          usage.lastUsed = Math.max(usage.lastUsed, created);
+        } else {
+          usageMap.set(tag, { tag, count: 1, lastUsed: created });
+        }
+      }
+    })
+  );
+  return rankTagSuggestions(Array.from(usageMap.values()), limit);
+}
+
+// src/capture-view.ts
 var IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "svg"];
-var ImageSuggestModal = class extends import_obsidian6.FuzzySuggestModal {
+var ImageSuggestModal = class extends import_obsidian7.FuzzySuggestModal {
   constructor(app, onChoose) {
     super(app);
     this.onChoose = onChoose;
@@ -1386,7 +1444,7 @@ var ImageSuggestModal = class extends import_obsidian6.FuzzySuggestModal {
     this.onChoose(file);
   }
 };
-var NoteSuggestModal = class extends import_obsidian6.FuzzySuggestModal {
+var NoteSuggestModal = class extends import_obsidian7.FuzzySuggestModal {
   constructor(app, onChoose, onDismiss) {
     super(app);
     this.onChoose = onChoose;
@@ -1409,7 +1467,7 @@ var NoteSuggestModal = class extends import_obsidian6.FuzzySuggestModal {
     }, 50);
   }
 };
-var CaptureItemView = class extends import_obsidian6.ItemView {
+var CaptureItemView = class extends import_obsidian7.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     /** Explicit tags added via the pill UI (without leading #). */
@@ -1418,6 +1476,10 @@ var CaptureItemView = class extends import_obsidian6.ItemView {
     this.selectedMood = "";
     /** Selected source (string or empty). */
     this.selectedSource = "";
+    /** Suggested tags shown above the add button. */
+    this.suggestedTags = [];
+    /** Invalidates async suggestion loads when the view closes/reopens. */
+    this.tagSuggestionLoadToken = 0;
     /** Prevents multiple wikilink modals from opening simultaneously. */
     this.wikilinkModalOpen = false;
     this.plugin = plugin;
@@ -1439,7 +1501,7 @@ var CaptureItemView = class extends import_obsidian6.ItemView {
       cls: "memos-capture-close clickable-icon",
       attr: { "aria-label": i18n.back }
     });
-    (0, import_obsidian6.setIcon)(closeBtn, "arrow-left");
+    (0, import_obsidian7.setIcon)(closeBtn, "arrow-left");
     closeBtn.addEventListener("click", async () => {
       await this.plugin.activateView();
       this.leaf.detach();
@@ -1454,8 +1516,10 @@ var CaptureItemView = class extends import_obsidian6.ItemView {
       this.handleWikilinkTrigger();
     });
     this.tags = [];
+    this.suggestedTags = [];
     this.tagsContainer = card.createDiv("memos-capture-card-tags");
     this.renderTags();
+    void this.refreshTagSuggestions();
     if (this.plugin.settings.enableMood) {
       const moodRow = card.createDiv("memos-capture-meta-row");
       moodRow.createSpan({ cls: "memos-capture-meta-label", text: i18n.mood });
@@ -1496,7 +1560,7 @@ var CaptureItemView = class extends import_obsidian6.ItemView {
       cls: "memos-capture-card-foot-btn clickable-icon",
       attr: { "aria-label": i18n.insertImage }
     });
-    (0, import_obsidian6.setIcon)(imageBtn, "image");
+    (0, import_obsidian7.setIcon)(imageBtn, "image");
     imageBtn.addEventListener("click", () => {
       new ImageSuggestModal(this.app, (file) => {
         this.insertAtCursor(`![[${file.name}]]`);
@@ -1506,7 +1570,7 @@ var CaptureItemView = class extends import_obsidian6.ItemView {
       cls: "memos-capture-card-foot-btn clickable-icon",
       attr: { "aria-label": i18n.addTag }
     });
-    (0, import_obsidian6.setIcon)(tagBtn, "hash");
+    (0, import_obsidian7.setIcon)(tagBtn, "hash");
     tagBtn.addEventListener("click", () => {
       this.showTagInput();
     });
@@ -1532,6 +1596,7 @@ var CaptureItemView = class extends import_obsidian6.ItemView {
     setTimeout(() => this.textarea.focus(), 100);
   }
   async onClose() {
+    this.tagSuggestionLoadToken += 1;
     this.contentEl.empty();
   }
   // ── Tag pill UI ──────────────────────────────────────────
@@ -1547,6 +1612,19 @@ var CaptureItemView = class extends import_obsidian6.ItemView {
       });
       removeBtn.addEventListener("click", () => {
         this.tags = this.tags.filter((t3) => t3 !== tag);
+        this.renderTags();
+      });
+    }
+    const visibleSuggestions = this.suggestedTags.filter((tag) => !this.tags.includes(tag));
+    for (const tag of visibleSuggestions) {
+      const pill = this.tagsContainer.createDiv(
+        "memos-capture-card-tag memos-capture-card-tag-suggestion"
+      );
+      pill.createSpan({ text: `#${tag}` });
+      pill.addEventListener("click", () => {
+        if (this.tags.includes(tag))
+          return;
+        this.tags.push(tag);
         this.renderTags();
       });
     }
@@ -1600,6 +1678,26 @@ var CaptureItemView = class extends import_obsidian6.ItemView {
     input.addEventListener("blur", () => {
       commit();
     });
+  }
+  /** Load tag suggestions from the memo folder and refresh the chip row. */
+  async refreshTagSuggestions() {
+    const loadToken = ++this.tagSuggestionLoadToken;
+    const excludedTags = this.plugin.settings.useFixedTag && this.plugin.settings.fixedTag ? [this.plugin.settings.fixedTag] : [];
+    try {
+      const suggestions = await loadTagSuggestions(
+        this.app,
+        this.plugin.settings.saveFolder,
+        {
+          limit: 6,
+          excludedTags
+        }
+      );
+      if (loadToken !== this.tagSuggestionLoadToken)
+        return;
+      this.suggestedTags = suggestions;
+      this.renderTags();
+    } catch (_err) {
+    }
   }
   // ── Helpers ──────────────────────────────────────────────
   /**
@@ -1656,7 +1754,7 @@ var CaptureItemView = class extends import_obsidian6.ItemView {
   async handleSave() {
     const trimmed = this.textarea.value.trim();
     if (!trimmed) {
-      new import_obsidian6.Notice(i18n.memoEmpty);
+      new import_obsidian7.Notice(i18n.memoEmpty);
       return;
     }
     const explicitTags = [...this.tags];
@@ -1669,11 +1767,11 @@ var CaptureItemView = class extends import_obsidian6.ItemView {
       meta.source = this.selectedSource;
     try {
       await this.plugin.saveMemo(trimmed, allTags, Object.keys(meta).length > 0 ? meta : void 0);
-      new import_obsidian6.Notice(i18n.memoSaved);
+      new import_obsidian7.Notice(i18n.memoSaved);
       await this.plugin.activateView();
       this.leaf.detach();
     } catch (err) {
-      new import_obsidian6.Notice(
+      new import_obsidian7.Notice(
         t("failedToSave", { err: err instanceof Error ? err.message : String(err) })
       );
     }
@@ -1681,10 +1779,10 @@ var CaptureItemView = class extends import_obsidian6.ItemView {
 };
 
 // src/settings.ts
-var import_obsidian8 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 
 // src/flomo-import.ts
-var import_obsidian7 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 function htmlToMarkdown(contentEl) {
   var _a, _b, _c, _d, _e, _f, _g, _h, _i;
   const lines = [];
@@ -1779,17 +1877,17 @@ function buildFilename(time, index) {
 async function importFlomoHtml(app, htmlContent, saveFolder) {
   const memos = parseFlomoHtml(htmlContent);
   if (memos.length === 0) {
-    new import_obsidian7.Notice(i18n.noMemosInHtml);
+    new import_obsidian8.Notice(i18n.noMemosInHtml);
     return 0;
   }
-  const folder = (0, import_obsidian7.normalizePath)(saveFolder);
+  const folder = (0, import_obsidian8.normalizePath)(saveFolder);
   if (!app.vault.getAbstractFileByPath(folder)) {
     await app.vault.createFolder(folder);
   }
   let imported = 0;
   const folderObj = app.vault.getAbstractFileByPath(folder);
   const existingFiles = new Set(
-    folderObj instanceof import_obsidian7.TFolder ? folderObj.children.filter((f) => f instanceof import_obsidian7.TFile).map((f) => f.name) : []
+    folderObj instanceof import_obsidian8.TFolder ? folderObj.children.filter((f) => f instanceof import_obsidian8.TFile).map((f) => f.name) : []
   );
   for (let i = 0; i < memos.length; i++) {
     const memo = memos[i];
@@ -1797,7 +1895,7 @@ async function importFlomoHtml(app, htmlContent, saveFolder) {
     if (existingFiles.has(filename))
       continue;
     const fileContent = buildMemoFile(memo);
-    const filePath = (0, import_obsidian7.normalizePath)(`${folder}/${filename}`);
+    const filePath = (0, import_obsidian8.normalizePath)(`${folder}/${filename}`);
     try {
       await app.vault.create(filePath, fileContent);
       imported++;
@@ -1809,7 +1907,7 @@ async function importFlomoHtml(app, htmlContent, saveFolder) {
 }
 
 // src/settings.ts
-var MemosSettingTab = class extends import_obsidian8.PluginSettingTab {
+var MemosSettingTab = class extends import_obsidian9.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -1817,14 +1915,14 @@ var MemosSettingTab = class extends import_obsidian8.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    new import_obsidian8.Setting(containerEl).setName(i18n.memosSettings).setHeading();
-    new import_obsidian8.Setting(containerEl).setName(i18n.saveFolder).setDesc(i18n.saveFolderDesc).addText(
+    new import_obsidian9.Setting(containerEl).setName(i18n.memosSettings).setHeading();
+    new import_obsidian9.Setting(containerEl).setName(i18n.saveFolder).setDesc(i18n.saveFolderDesc).addText(
       (text) => text.setPlaceholder("Memos").setValue(this.plugin.settings.saveFolder).onChange(async (value) => {
         this.plugin.settings.saveFolder = value.trim() || "Memos";
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian8.Setting(containerEl).setName(i18n.useFixedTag).setDesc(i18n.useFixedTagDesc).addToggle(
+    new import_obsidian9.Setting(containerEl).setName(i18n.useFixedTag).setDesc(i18n.useFixedTagDesc).addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.useFixedTag).onChange(async (value) => {
         this.plugin.settings.useFixedTag = value;
         await this.plugin.saveSettings();
@@ -1832,15 +1930,15 @@ var MemosSettingTab = class extends import_obsidian8.PluginSettingTab {
       })
     );
     if (this.plugin.settings.useFixedTag) {
-      new import_obsidian8.Setting(containerEl).setName(i18n.fixedTagValue).setDesc(i18n.fixedTagValueDesc).addText(
+      new import_obsidian9.Setting(containerEl).setName(i18n.fixedTagValue).setDesc(i18n.fixedTagValueDesc).addText(
         (text) => text.setPlaceholder("memo").setValue(this.plugin.settings.fixedTag).onChange(async (value) => {
           this.plugin.settings.fixedTag = value.trim().replace(/^#+/, "");
           await this.plugin.saveSettings();
         })
       );
     }
-    new import_obsidian8.Setting(containerEl).setName(i18n.extendedMetadata).setHeading();
-    new import_obsidian8.Setting(containerEl).setName(i18n.enableMood).setDesc(i18n.enableMoodDesc).addToggle(
+    new import_obsidian9.Setting(containerEl).setName(i18n.extendedMetadata).setHeading();
+    new import_obsidian9.Setting(containerEl).setName(i18n.enableMood).setDesc(i18n.enableMoodDesc).addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableMood).onChange(async (value) => {
         this.plugin.settings.enableMood = value;
         await this.plugin.saveSettings();
@@ -1848,14 +1946,14 @@ var MemosSettingTab = class extends import_obsidian8.PluginSettingTab {
       })
     );
     if (this.plugin.settings.enableMood) {
-      new import_obsidian8.Setting(containerEl).setName(i18n.moodOptions).setDesc(i18n.moodOptionsDesc).addText(
+      new import_obsidian9.Setting(containerEl).setName(i18n.moodOptions).setDesc(i18n.moodOptionsDesc).addText(
         (text) => text.setPlaceholder("\u{1F4A1}, \u{1F914}, \u{1F60A}, \u{1F624}, \u{1F4D6}").setValue(this.plugin.settings.moodOptions.join(", ")).onChange(async (value) => {
           this.plugin.settings.moodOptions = value.split(",").map((s) => s.trim()).filter(Boolean);
           await this.plugin.saveSettings();
         })
       );
     }
-    new import_obsidian8.Setting(containerEl).setName(i18n.enableSource).setDesc(i18n.enableSourceDesc).addToggle(
+    new import_obsidian9.Setting(containerEl).setName(i18n.enableSource).setDesc(i18n.enableSourceDesc).addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableSource).onChange(async (value) => {
         this.plugin.settings.enableSource = value;
         await this.plugin.saveSettings();
@@ -1863,15 +1961,15 @@ var MemosSettingTab = class extends import_obsidian8.PluginSettingTab {
       })
     );
     if (this.plugin.settings.enableSource) {
-      new import_obsidian8.Setting(containerEl).setName(i18n.sourceOptions).setDesc(i18n.sourceOptionsDesc).addText(
+      new import_obsidian9.Setting(containerEl).setName(i18n.sourceOptions).setDesc(i18n.sourceOptionsDesc).addText(
         (text) => text.setPlaceholder("thought, kindle, web, conversation, podcast").setValue(this.plugin.settings.sourceOptions.join(", ")).onChange(async (value) => {
           this.plugin.settings.sourceOptions = value.split(",").map((s) => s.trim()).filter(Boolean);
           await this.plugin.saveSettings();
         })
       );
     }
-    new import_obsidian8.Setting(containerEl).setName(i18n.imageExport).setHeading();
-    new import_obsidian8.Setting(containerEl).setName(i18n.showAuthorName).setDesc(i18n.showAuthorNameDesc).addToggle(
+    new import_obsidian9.Setting(containerEl).setName(i18n.imageExport).setHeading();
+    new import_obsidian9.Setting(containerEl).setName(i18n.showAuthorName).setDesc(i18n.showAuthorNameDesc).addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.showAuthorInExport).onChange(async (value) => {
         this.plugin.settings.showAuthorInExport = value;
         await this.plugin.saveSettings();
@@ -1879,21 +1977,21 @@ var MemosSettingTab = class extends import_obsidian8.PluginSettingTab {
       })
     );
     if (this.plugin.settings.showAuthorInExport) {
-      new import_obsidian8.Setting(containerEl).setName(i18n.authorName).setDesc(i18n.authorNameDesc).addText(
+      new import_obsidian9.Setting(containerEl).setName(i18n.authorName).setDesc(i18n.authorNameDesc).addText(
         (text) => text.setPlaceholder("Your name").setValue(this.plugin.settings.authorName).onChange(async (value) => {
           this.plugin.settings.authorName = value.trim();
           await this.plugin.saveSettings();
         })
       );
     }
-    new import_obsidian8.Setting(containerEl).setName(i18n.showBranding).setDesc(i18n.showBrandingDesc).addToggle(
+    new import_obsidian9.Setting(containerEl).setName(i18n.showBranding).setDesc(i18n.showBrandingDesc).addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.showBrandingInExport).onChange(async (value) => {
         this.plugin.settings.showBrandingInExport = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian8.Setting(containerEl).setName(i18n.importHeading).setHeading();
-    new import_obsidian8.Setting(containerEl).setName(i18n.importFromFlomo).setDesc(i18n.importFromFlomoDesc).addButton(
+    new import_obsidian9.Setting(containerEl).setName(i18n.importHeading).setHeading();
+    new import_obsidian9.Setting(containerEl).setName(i18n.importFromFlomo).setDesc(i18n.importFromFlomoDesc).addButton(
       (btn) => btn.setButtonText(i18n.chooseHtmlFile).setCta().onClick(() => {
         const input = document.createElement("input");
         input.type = "file";
@@ -1903,7 +2001,7 @@ var MemosSettingTab = class extends import_obsidian8.PluginSettingTab {
           const file = (_a = input.files) == null ? void 0 : _a[0];
           if (!file)
             return;
-          new import_obsidian8.Notice(t("readingFile", { name: file.name }));
+          new import_obsidian9.Notice(t("readingFile", { name: file.name }));
           try {
             const html = await file.text();
             const count = await importFlomoHtml(
@@ -1912,12 +2010,12 @@ var MemosSettingTab = class extends import_obsidian8.PluginSettingTab {
               this.plugin.settings.saveFolder
             );
             if (count > 0) {
-              new import_obsidian8.Notice(t("importSuccess", { count }));
+              new import_obsidian9.Notice(t("importSuccess", { count }));
             } else {
-              new import_obsidian8.Notice(i18n.importNoNew);
+              new import_obsidian9.Notice(i18n.importNoNew);
             }
           } catch (err) {
-            new import_obsidian8.Notice(
+            new import_obsidian9.Notice(
               t("importFailed", { err: err instanceof Error ? err.message : String(err) })
             );
           }
@@ -1929,12 +2027,12 @@ var MemosSettingTab = class extends import_obsidian8.PluginSettingTab {
 };
 
 // src/plugin.ts
-var MemosPlugin = class extends import_obsidian9.Plugin {
+var MemosPlugin = class extends import_obsidian10.Plugin {
   async onload() {
     await this.loadSettings();
     this.registerView(VIEW_TYPE_MEMOS, (leaf) => new MemosView(leaf, this));
     this.registerView(VIEW_TYPE_CAPTURE, (leaf) => new CaptureItemView(leaf, this));
-    (0, import_obsidian9.addIcon)("quick-memos", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="14" width="50" height="68" rx="6"/><line x1="20" y1="34" x2="44" y2="34"/><line x1="20" y1="46" x2="38" y2="46"/><line x1="20" y1="58" x2="42" y2="58"/><rect x="70" y="14" width="14" height="52" rx="3"/><path d="M70 66l7 14 7-14" fill="currentColor"/><line x1="70" y1="24" x2="84" y2="24" stroke-width="4"/></svg>`);
+    (0, import_obsidian10.addIcon)("quick-memos", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="14" width="50" height="68" rx="6"/><line x1="20" y1="34" x2="44" y2="34"/><line x1="20" y1="46" x2="38" y2="46"/><line x1="20" y1="58" x2="42" y2="58"/><rect x="70" y="14" width="14" height="52" rx="3"/><path d="M70 66l7 14 7-14" fill="currentColor"/><line x1="70" y1="24" x2="84" y2="24" stroke-width="4"/></svg>`);
     this.addRibbonIcon("quick-memos", i18n.openMemosView, () => {
       this.activateView();
     });
@@ -1959,7 +2057,7 @@ var MemosPlugin = class extends import_obsidian9.Plugin {
       const mood = (params.mood || "").trim();
       const source = (params.source || "").trim();
       if (!content) {
-        new import_obsidian9.Notice(i18n.memoContentEmpty);
+        new import_obsidian10.Notice(i18n.memoContentEmpty);
         return;
       }
       const meta = {};
@@ -1968,7 +2066,7 @@ var MemosPlugin = class extends import_obsidian9.Plugin {
       if (source)
         meta.source = source;
       await this.saveMemo(content, tags, Object.keys(meta).length > 0 ? meta : void 0);
-      new import_obsidian9.Notice(i18n.memoSaved);
+      new import_obsidian10.Notice(i18n.memoSaved);
     });
     this.registerObsidianProtocolHandler("memo-view", () => {
       if (this.app.workspace.layoutReady) {
@@ -1988,7 +2086,7 @@ var MemosPlugin = class extends import_obsidian9.Plugin {
           item.setTitle(i18n.saveAsMemo).setIcon("sticky-note").onClick(async () => {
             const tags = extractInlineTags(selection);
             await this.saveMemo(selection, tags);
-            new import_obsidian9.Notice(i18n.selectionSavedAsMemo);
+            new import_obsidian10.Notice(i18n.selectionSavedAsMemo);
           });
         });
       })
@@ -2013,7 +2111,7 @@ var MemosPlugin = class extends import_obsidian9.Plugin {
       setTimeout(() => observer.disconnect(), EMBED_RESOLVE_TIMEOUT_MS);
     });
     this.app.workspace.onLayoutReady(() => {
-      if (import_obsidian9.Platform.isMobile) {
+      if (import_obsidian10.Platform.isMobile) {
         this.activateView();
       }
     });
@@ -2072,11 +2170,11 @@ ${extraYaml}---
 
 `;
     const fileContent = frontmatter + content;
-    const folder = (0, import_obsidian9.normalizePath)(this.settings.saveFolder);
+    const folder = (0, import_obsidian10.normalizePath)(this.settings.saveFolder);
     if (!this.app.vault.getAbstractFileByPath(folder)) {
       await this.app.vault.createFolder(folder);
     }
-    const filePath = (0, import_obsidian9.normalizePath)(`${folder}/${filename}`);
+    const filePath = (0, import_obsidian10.normalizePath)(`${folder}/${filename}`);
     await this.app.vault.create(filePath, fileContent);
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_MEMOS)) {
       const view = leaf.view;

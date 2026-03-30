@@ -283,7 +283,7 @@ export function t(key: string, vars?: Record<string, string | number>): string {
   if (typeof val !== "string") return key;
   if (vars) {
     for (const [k, v] of Object.entries(vars)) {
-      val = (val as string).replaceAll(`\${${k}}`, String(v));
+      val = (val as string).split(`\${${k}}`).join(String(v));
     }
   }
   return val as string;
