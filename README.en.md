@@ -24,9 +24,11 @@ Primarily designed as a mobile-friendly 📱 inspiration capture plugin, with di
 ### Features
 
 - **Mobile Ready** — Supports iOS Shortcuts for quick access
+- **Image Insert** — On iOS, open Photos and save into the vault’s attachment folder automatically; on desktop, use the native attachment/file picker flow
 - **Image Export** — Export any memo as a beautiful PNG card with optional author name and branding
 - **Canvas Export** — Send filtered memos to an Obsidian Canvas file, grouped by tag
 - **Right-Click to Memo** — Select any text, right-click → Save as Memo
+- **Tag Suggestions** — Show recent + frequent tags first when capturing, so you can tap instead of typing
 - **Wikilink Support** — Type `[[` in the capture view to search and insert note links
 - **Transclusion Styling** — `![[memo]]` embeds in other notes are auto-styled as cards
 - **Flomo Import** — One-click import from Flomo HTML export, preserving timestamps and tags
@@ -44,23 +46,25 @@ npm install
 npm run build
 ```
 
-Copy `main.js`, `manifest.json`, and `styles.css` into your vault:
+Copy `main.js`, `manifest.json`, and `styles.css` into your vault, and make sure the plugin folder name is `quick-memos`:
 
 ```
-<your-vault>/.obsidian/plugins/obsidian-memos/
+<your-vault>/.obsidian/plugins/quick-memos/
 ```
 
 Or symlink (recommended for development):
 
 ```bash
 # macOS / Linux
-ln -s /path/to/obsidian-memos /path/to/vault/.obsidian/plugins/obsidian-memos
+ln -s /path/to/quick-memos /path/to/vault/.obsidian/plugins/quick-memos
 
 # Windows (PowerShell as Admin)
 New-Item -ItemType SymbolicLink `
-  -Path "C:\vault\.obsidian\plugins\obsidian-memos" `
-  -Target "C:\obsidian-memos"
+  -Path "C:\vault\.obsidian\plugins\quick-memos" `
+  -Target "C:\quick-memos"
 ```
+
+> If the plugin is not recognized on mobile, double-check that the folder name is `quick-memos`.
 
 Enable in Obsidian: **Settings → Community plugins → Enable Quick Memos**
 
@@ -81,6 +85,7 @@ Enable in Obsidian: **Settings → Community plugins → Enable Quick Memos**
 | Open capture view | Click ribbon icon 📝 / Command palette → `Memos: Quick capture` |
 | Save memo | `Ctrl+Enter` or click Save button |
 | Open card view | Command palette → `Memos: Open Memos view` |
+| Insert image | Click the image button in the capture view; iOS opens Photos, desktop opens a file picker |
 | Filter by tag | Click any tag |
 | Filter by date | Click a heatmap cell |
 | Clear filter | Click × on the filter pill |
@@ -112,6 +117,10 @@ Had a great idea for a new feature today! #excited
 - `type: memo` — Required, used for identification
 - `tags` — Auto-merged from frontmatter and inline `#tags`
 - `mood` / `source` — Optional, enable in settings
+
+### Tag Suggestions
+
+In the quick capture view, the `Add tag` area shows recent and frequently used tags first. Tap one of the suggested tags to add it instantly; if nothing fits, use `Add tag` to type a new one.
 
 ---
 

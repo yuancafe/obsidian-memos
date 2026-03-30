@@ -25,9 +25,11 @@ Quick Memos 是一个 Obsidian 插件，让你在笔记库里像用 Flomo 一样
 
 ### 核心功能
 - **移动端适配** — 支持 iOS 快捷指令入口
+- **图片插入** — iOS 端唤起相册选择图片并自动保存到 vault 的附件目录；桌面端走原生附件/文件选择流程
 - **图片导出** — 把单条 memo 导出为精美的 PNG 卡片图，支持自定义作者名和品牌标识
 - **Canvas 导出** — 一键将当前筛选的 memo 发送到 Obsidian Canvas，按标签分列排布
 - **右键存 Memo** — 选中任意文本，右键「保存为 Memo」
+- **常用标签建议** — 新建 memo 时优先显示最近 + 高频标签，直接点选即可
 - **Wikilink 支持** — 在捕获界面输入 `[[` 即可搜索并插入笔记链接
 - **嵌入样式** — 在其他笔记中 `![[memo]]` 时自动渲染为卡片样式
 - **Flomo 导入** — 一键导入 Flomo 导出的 HTML，保留时间和标签
@@ -45,23 +47,25 @@ npm install
 npm run build
 ```
 
-将 `main.js`、`manifest.json`、`styles.css` 复制到你的 vault：
+将 `main.js`、`manifest.json`、`styles.css` 复制到你的 vault，并确保插件文件夹名是 `quick-memos`：
 
 ```
-<你的vault>/.obsidian/plugins/obsidian-memos/
+<你的vault>/.obsidian/plugins/quick-memos/
 ```
 
 或者用软链接（开发时推荐）：
 
 ```bash
 # macOS / Linux
-ln -s /path/to/obsidian-memos /path/to/vault/.obsidian/plugins/obsidian-memos
+ln -s /path/to/quick-memos /path/to/vault/.obsidian/plugins/quick-memos
 
 # Windows (PowerShell 管理员)
 New-Item -ItemType SymbolicLink `
-  -Path "C:\vault\.obsidian\plugins\obsidian-memos" `
-  -Target "C:\obsidian-memos"
+  -Path "C:\vault\.obsidian\plugins\quick-memos" `
+  -Target "C:\quick-memos"
 ```
+
+> 手机端如果识别不到社区插件，先检查这个目录名是否已经改成 `quick-memos`。
 
 在 Obsidian 中启用：**设置 → 社区插件 → 启用 Quick Memos**
 
@@ -82,6 +86,7 @@ New-Item -ItemType SymbolicLink `
 | 打开捕获界面 | 点击丝带图标 📝 / 命令面板 → `Memos: Quick capture` |
 | 保存 memo | `Ctrl+Enter` 或点击保存按钮 |
 | 打开卡片视图 | 命令面板 → `Memos: Open Memos view` |
+| 插入图片 | 点击捕获界面底部图片按钮，iOS 会打开相册，桌面端会打开文件选择器 |
 | 按标签筛选 | 点击任意标签 |
 | 按日期筛选 | 点击热力图上的格子 |
 | 清除筛选 | 点击筛选标签上的 × |
@@ -113,6 +118,10 @@ status: active
 - `type: memo` — 必需，用于识别 memo 文件
 - `tags` — 自动合并 frontmatter 标签和正文中的 `#标签`
 - `mood` / `source` — 可选，需在设置中开启
+
+### 标签建议
+
+在快速记录界面里，`Add tag` 入口上方会优先展示最近使用和高频出现的标签。你可以直接点选这些标签，不用每次手输；如果没有合适的，再继续用 `Add tag` 手动输入。
 
 ---
 
